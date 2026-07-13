@@ -232,7 +232,7 @@ export class SubscriptionService {
       twitchBroadcasterId,
       twitchBroadcasterLogin,
       lastTwitchVideoId,
-      twitterUsername: platform === "Twitter" ? extractTwitterUsername(authorUrl) : undefined,
+      twitterUsername: platform === "Twitter" ? extractTwitterUsername(authorUrl) ?? undefined : undefined,
       lastTweetId,
     };
 
