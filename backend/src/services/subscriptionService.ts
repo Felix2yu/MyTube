@@ -11,10 +11,13 @@ import {
 import {
     extractBilibiliMid,
     extractTwitchChannelLogin,
+    extractTwitterUsername,
     isBilibiliSpaceUrl,
     isTwitchChannelUrl,
+    isTwitterUrl,
     isYouTubeUrl,
     normalizeTwitchChannelUrl,
+    normalizeTwitterUrl,
     normalizeYouTubeAuthorUrl,
 } from "../utils/helpers";
 import { logger } from "../utils/logger";
@@ -83,6 +86,7 @@ export class SubscriptionService {
     let twitchBroadcasterId: string | undefined;
     let twitchBroadcasterLogin: string | undefined;
     let lastTwitchVideoId: string | undefined;
+    let lastTweetId: string | undefined;
 
     if (isBilibiliSpaceUrl(authorUrl)) {
       platform = "Bilibili";
@@ -163,6 +167,35 @@ export class SubscriptionService {
         lastTwitchVideoId = newestVideo?.id;
         lastVideoLink = newestVideo?.url || "";
       }
+    } else if (isTwitterUrl(authorUrl)) {
+      authorUrl = normalizeTwitterUrl(authorUrl);
+      platform = "Twitter";
+
+      // Extract username from URL
+      const twitterUsername = extractTwitterUsername(authorUrl);
+      if (!twitterUsername) {
+        throw new ValidationError(`Invalid Twitter/X URL: ${authorUrl}`, "url");
+      }
+
+      // If author name not provided, use the username
+      if (!providedAuthorName) {
+        authorName = `@${twitterUsername}`;
+      }
+
+      // Try to get the latest tweet as the starting point
+      try {
+        const latestUrl = await YtDlpDownloader.getLatestVideoUrl(authorUrl);
+        if (latestUrl) {
+          lastVideoLink = latestUrl;
+          // Extract tweet ID from URL
+          const tweetIdMatch = latestUrl.match(/status\/(\d+)/);
+          if (tweetIdMatch) {
+            lastTweetId = tweetIdMatch[1];
+          }
+        }
+      } catch (error) {
+        logger.warn("Could not fetch latest tweet:", error);
+      }
     } else {
       throw ValidationError.unsupportedPlatform(authorUrl);
     }
@@ -199,6 +232,8 @@ export class SubscriptionService {
       twitchBroadcasterId,
       twitchBroadcasterLogin,
       lastTwitchVideoId,
+      twitterUsername: platform === "Twitter" ? extractTwitterUsername(authorUrl) : undefined,
+      lastTweetId,
     };
 
     await db.insert(subscriptions).values(newSubscription);
@@ -561,6 +596,12 @@ export class SubscriptionService {
 
       if (sub.platform === "Twitch") {
         checkNewVideoCount = await this.checkTwitchSubscription(sub);
+        return;
+      }
+
+      // Twitter/X subscriptions - check for new tweets with media
+      if (sub.platform === "Twitter") {
+        checkNewVideoCount = await this.checkTwitterSubscription(sub);
         return;
       }
 
@@ -953,6 +994,7 @@ export class SubscriptionService {
   ): Promise<any> {
     const downloadTaskId = uuidv4();
     const isBilibili = sub.platform === "Bilibili";
+    const isTwitter = sub.platform === "Twitter";
     return downloadManager.addDownload(
       (registerCancel) =>
         isBilibili
@@ -975,7 +1017,7 @@ export class SubscriptionService {
       downloadTaskId,
       initialTitle,
       videoUrl,
-      isBilibili ? "bilibili" : "youtube",
+      isBilibili ? "bilibili" : isTwitter ? "twitter" : "youtube",
       {
         actorRole: "system",
         surface: "background",
@@ -1008,6 +1050,183 @@ export class SubscriptionService {
     }>
   ): Promise<number> {
     return processTwitchSubscriptionVideosImpl(sub, videosToProcess);
+  }
+
+  /**
+   * Check Twitter/X subscription for new tweets with media
+   */
+  private async checkTwitterSubscription(sub: Subscription): Promise<number> {
+    const now = Date.now();
+    let newMediaCount = 0;
+
+    try {
+      // Get the user's profile URL
+      const profileUrl = sub.authorUrl;
+
+      // Use yt-dlp to get the latest tweets
+      const {
+        executeYtDlpJson,
+        getNetworkConfigFromUserConfig,
+        getUserYtDlpConfig,
+      } = await import("../utils/ytDlpUtils");
+
+      const userConfig = getUserYtDlpConfig(profileUrl);
+      const networkConfig = getNetworkConfigFromUserConfig(userConfig);
+
+      // Get the latest tweet URL
+      const latestTweetUrl = await YtDlpDownloader.getLatestVideoUrl(profileUrl);
+
+      if (!latestTweetUrl) {
+        logger.debug("No tweets found for Twitter subscription", getSubscriptionLogContext(sub));
+        // Update lastCheck
+        await db
+          .update(subscriptions)
+          .set({ lastCheck: now })
+          .where(eq(subscriptions.id, sub.id));
+        return 0;
+      }
+
+      // Extract tweet ID from URL
+      const tweetIdMatch = latestTweetUrl.match(/status\/(\d+)/);
+      const latestTweetId = tweetIdMatch ? tweetIdMatch[1] : null;
+
+      // Check if this is a new tweet
+      if (latestTweetId && latestTweetId === sub.lastTweetId) {
+        logger.debug("No new tweets for subscription", getSubscriptionLogContext(sub));
+        // Update lastCheck
+        await db
+          .update(subscriptions)
+          .set({ lastCheck: now })
+          .where(eq(subscriptions.id, sub.id));
+        return 0;
+      }
+
+      // New tweet found - download it
+      logger.info(
+        "New tweet found for subscription",
+        getSubscriptionLogContext(sub, { latestTweetUrl })
+      );
+
+      // Update lastCheck before download
+      const lockResult = await db
+        .update(subscriptions)
+        .set({ lastCheck: now })
+        .where(eq(subscriptions.id, sub.id))
+        .returning({ id: subscriptions.id });
+
+      if (lockResult.length === 0) {
+        logger.warn(
+          "Subscription was deleted during processing, skipping download",
+          getSubscriptionLogContext(sub)
+        );
+        return 0;
+      }
+
+      // Download the tweet media
+      const downloadTaskId = uuidv4();
+      try {
+        const downloadResult = await downloadManager.addDownload(
+          (registerCancel) =>
+            downloadYouTubeVideo(
+              latestTweetUrl,
+              downloadTaskId,
+              registerCancel,
+              buildFilenameTemplateSourceOptions(sub)
+            ),
+          downloadTaskId,
+          `Tweet from ${sub.author}`,
+          latestTweetUrl,
+          "twitter",
+          {
+            actorRole: "system",
+            surface: "background",
+            sourceKind: "subscription",
+          },
+          undefined,
+          {
+            suppressHistory: true,
+            suppressCompletionNotification: true,
+            disableAutoRetry: true,
+          }
+        );
+
+        // Update subscription with new tweet ID
+        await db
+          .update(subscriptions)
+          .set({
+            lastVideoLink: latestTweetUrl,
+            lastTweetId: latestTweetId || undefined,
+            downloadCount: (sub.downloadCount || 0) + 1,
+          })
+          .where(eq(subscriptions.id, sub.id));
+
+        newMediaCount = 1;
+
+        // Add to download history
+        const videoData = downloadResult?.videoData || downloadResult || {};
+        storageService.addDownloadHistoryItem({
+          id: uuidv4(),
+          title: videoData.title || `Tweet from ${sub.author}`,
+          author: videoData.author || sub.author,
+          sourceUrl: latestTweetUrl,
+          finishedAt: Date.now(),
+          status: "success",
+          videoPath: videoData.videoPath,
+          thumbnailPath: videoData.thumbnailPath,
+          videoId: videoData.id,
+          subscriptionId: sub.id,
+          platform: "twitter",
+          sourceKind: "subscription",
+        });
+
+        notifySubscriptionDownloadResult({
+          taskTitle: videoData.title || `Tweet from ${sub.author}`,
+          status: "success",
+          sourceUrl: latestTweetUrl,
+        });
+
+        logger.debug(
+          "Successfully processed Twitter subscription",
+          getSubscriptionLogContext(sub, { latestTweetUrl })
+        );
+      } catch (downloadError: unknown) {
+        const errorMessage = getErrorMessage(downloadError, "Download failed");
+        logger.error(
+          "Error downloading tweet media",
+          downloadError,
+          getSubscriptionLogContext(sub, { latestTweetUrl })
+        );
+
+        notifySubscriptionDownloadResult({
+          taskTitle: `Tweet from ${sub.author}`,
+          status: "fail",
+          sourceUrl: latestTweetUrl,
+          error: errorMessage,
+        });
+
+        // Add to download history on failure
+        storageService.addDownloadHistoryItem({
+          id: uuidv4(),
+          title: `Tweet from ${sub.author}`,
+          author: sub.author,
+          sourceUrl: latestTweetUrl,
+          finishedAt: Date.now(),
+          status: "failed",
+          error: errorMessage,
+          subscriptionId: sub.id,
+          platform: "twitter",
+          sourceKind: "subscription",
+        });
+      }
+    } catch (error) {
+      logger.error(
+        "Error checking Twitter subscription",
+        error,
+        getSubscriptionLogContext(sub)
+      );
+    }
+
+    return newMediaCount;
   }
 
   startScheduler() {

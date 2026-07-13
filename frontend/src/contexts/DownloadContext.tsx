@@ -348,6 +348,16 @@ export const DownloadProvider: React.FC<{ children: React.ReactNode }> = ({ chil
                 }
             }
 
+            // Check for Twitter/X user profile URL (e.g., https://x.com/username)
+            const twitterUserRegex = /(?:x\.com|twitter\.com)\/([A-Za-z0-9_]+)\/?$/;
+            const twitterMatch = videoUrl.match(twitterUserRegex);
+            if (twitterMatch && !videoUrl.includes('/status/')) {
+                setSubscribeUrl(videoUrl);
+                setSubscribeSource('twitter');
+                setShowSubscribeModal(true);
+                return { success: true };
+            }
+
             // Check if it's a Bilibili URL
             if (isBilibiliUrl(videoUrl)) {
                 setIsCheckingParts(true);

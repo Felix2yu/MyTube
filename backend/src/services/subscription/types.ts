@@ -27,6 +27,10 @@ export interface Subscription {
   twitchBroadcasterLogin?: string;
   lastTwitchVideoId?: string;
 
+  // Twitter/X support
+  twitterUsername?: string;
+  lastTweetId?: string;
+
   // Retention
   retentionDays?: number | null;
 

@@ -7,6 +7,7 @@ import {
     extractYouTubeVideoId,
     extractBilibiliMid,
     extractBilibiliVideoId,
+    extractTwitterUsername,
     extractUrlFromText,
     formatAvatarFilename,
     formatVideoFilename,
@@ -20,9 +21,11 @@ import {
     isTwitchUrl,
     isTwitchVideoUrl,
     isTwitterUrl,
+    isTwitterUserProfileUrl,
     isYouTubeUrl,
     isValidUrl,
     normalizeTwitchChannelUrl,
+    normalizeTwitterUrl,
     normalizeYouTubeAuthorUrl,
     processVideoUrl,
     resolveShortUrl,
@@ -89,6 +92,27 @@ describe('Helpers', () => {
       expect(isTwitterUrl('https://x.com/user')).toBe(true);
       expect(isTwitterUrl('https://twitter.com/user')).toBe(true);
       expect(isTwitterUrl('https://youtube.com/user')).toBe(false);
+    });
+
+    it('should validate twitter user profile URLs', () => {
+      expect(isTwitterUserProfileUrl('https://x.com/user')).toBe(true);
+      expect(isTwitterUserProfileUrl('https://twitter.com/user')).toBe(true);
+      expect(isTwitterUserProfileUrl('https://x.com/user/status/123')).toBe(false);
+      expect(isTwitterUserProfileUrl('https://youtube.com/user')).toBe(false);
+    });
+
+    it('should normalize twitter URLs to user profile', () => {
+      expect(normalizeTwitterUrl('https://x.com/user/status/123')).toBe('https://x.com/user');
+      expect(normalizeTwitterUrl('https://twitter.com/user/status/123')).toBe('https://x.com/user');
+      expect(normalizeTwitterUrl('https://x.com/user')).toBe('https://x.com/user');
+      expect(normalizeTwitterUrl('https://youtube.com/user')).toBe('https://youtube.com/user');
+    });
+
+    it('should extract twitter username from URL', () => {
+      expect(extractTwitterUsername('https://x.com/user')).toBe('user');
+      expect(extractTwitterUsername('https://twitter.com/user/status/123')).toBe('user');
+      expect(extractTwitterUsername('https://x.com/user/')).toBe('user');
+      expect(extractTwitterUsername('https://youtube.com/user')).toBe(null);
     });
 
     it('should validate twitch channel domains', () => {

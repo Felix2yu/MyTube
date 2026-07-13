@@ -186,6 +186,8 @@ export class VideoUrlFetcher {
         return await this.getBilibiliVideoUrls(authorUrl, startIndex, batchSize);
       } else if (platform === "Twitch") {
         return await this.getTwitchVideoUrls(authorUrl);
+      } else if (platform === "Twitter") {
+        return await this.getTwitterVideoUrls(authorUrl);
       } else {
         return await this.getYouTubeVideoUrlsIncremental(
           authorUrl,
@@ -212,6 +214,8 @@ export class VideoUrlFetcher {
         return await this.getBilibiliVideoUrls(authorUrl);
       } else if (platform === "Twitch") {
         return await this.getTwitchVideoUrls(authorUrl);
+      } else if (platform === "Twitter") {
+        return await this.getTwitterVideoUrls(authorUrl);
       } else {
         return await this.getYouTubeVideoUrls(authorUrl);
       }
@@ -234,6 +238,8 @@ export class VideoUrlFetcher {
         return await this.getBilibiliVideoEntries(authorUrl);
       } else if (platform === "Twitch") {
         return await this.getTwitchVideoEntries(authorUrl);
+      } else if (platform === "Twitter") {
+        return await this.getTwitterVideoEntries(authorUrl);
       } else {
         return await this.getYouTubeVideoEntries(authorUrl);
       }
@@ -987,5 +993,69 @@ export class VideoUrlFetcher {
       authorUrl,
     });
     return videoUrls;
+  }
+
+  /**
+   * Get Twitter/X video URLs from a user profile
+   */
+  private async getTwitterVideoUrls(authorUrl: string): Promise<string[]> {
+    const entries = await this.getTwitterVideoEntries(authorUrl);
+    return entries.map((entry) => entry.url);
+  }
+
+  /**
+   * Get Twitter/X video entries with metadata
+   */
+  private async getTwitterVideoEntries(authorUrl: string): Promise<VideoEntry[]> {
+    const {
+      executeYtDlpJson,
+      getNetworkConfigFromUserConfig,
+      getUserYtDlpConfig,
+    } = await import("../../utils/ytDlpUtils");
+
+    const userConfig = getUserYtDlpConfig(authorUrl);
+    const networkConfig = getNetworkConfigFromUserConfig(userConfig);
+
+    const entries: VideoEntry[] = [];
+    let page = 1;
+    const pageSize = 100;
+    let hasMore = true;
+
+    while (hasMore) {
+      try {
+        const result = await executeYtDlpJson(authorUrl, {
+          ...networkConfig,
+          noWarnings: true,
+          flatPlaylist: true,
+          playlistStart: (page - 1) * pageSize + 1,
+          playlistEnd: page * pageSize,
+        });
+
+        if (result.entries && result.entries.length > 0) {
+          for (const entry of result.entries) {
+            const url = entry.url || `https://x.com/${authorUrl.split('/').pop()}/status/${entry.id}`;
+            entries.push({
+              url,
+              uploadDate: toUploadDate(entry.upload_date ?? entry.timestamp),
+              viewCount: toViewCount(entry.view_count),
+              sourceIndex: entries.length,
+            });
+          }
+          hasMore = result.entries.length === pageSize;
+          page++;
+        } else {
+          hasMore = false;
+        }
+      } catch (error) {
+        logger.error(`Error fetching Twitter video entries page ${page}:`, error);
+        hasMore = false;
+      }
+    }
+
+    logger.info("Found Twitter video entries for source", {
+      entryCount: entries.length,
+      authorUrl,
+    });
+    return entries;
   }
 }

@@ -130,6 +130,60 @@ export function isTwitterUrl(url: string): boolean {
   return hasAllowedHostname(url, TWITTER_HOSTNAMES);
 }
 
+/**
+ * Normalize Twitter/X URL to user profile URL.
+ * Supports:
+ * - https://x.com/username
+ * - https://twitter.com/username
+ * - https://x.com/username/status/123 (extracts username)
+ */
+export function normalizeTwitterUrl(url: string): string {
+  try {
+    if (!isTwitterUrl(url)) return url;
+    const parsedUrl = new URL(url);
+    const pathParts = parsedUrl.pathname.split('/').filter(Boolean);
+    if (pathParts.length >= 1) {
+      return `https://x.com/${pathParts[0]}`;
+    }
+    return url;
+  } catch {
+    return url;
+  }
+}
+
+/**
+ * Check if URL is a Twitter user profile URL (not a single tweet).
+ * User profile: /username or /username/
+ * Single tweet: /username/status/123
+ */
+export function isTwitterUserProfileUrl(url: string): boolean {
+  if (!isTwitterUrl(url)) return false;
+  try {
+    const parsedUrl = new URL(url);
+    const pathParts = parsedUrl.pathname.split('/').filter(Boolean);
+    return pathParts.length === 1;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Extract username from Twitter/X URL.
+ */
+export function extractTwitterUsername(url: string): string | null {
+  if (!isTwitterUrl(url)) return null;
+  try {
+    const parsedUrl = new URL(url);
+    const pathParts = parsedUrl.pathname.split('/').filter(Boolean);
+    if (pathParts.length >= 1) {
+      return pathParts[0];
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 export function isTwitchUrl(url: string): boolean {
   return hasAllowedHostname(url, TWITCH_HOSTNAMES);
 }

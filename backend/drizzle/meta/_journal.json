@@ -169,6 +169,13 @@
       "when": 1783730035912,
       "tag": "0023_striped_ender_wiggin",
       "breakpoints": true
+    },
+    {
+      "idx": 24,
+      "version": "6",
+      "when": 1783814400000,
+      "tag": "0024_twitter_subscription_support",
+      "breakpoints": true
     }
   ]
 }

@@ -51,18 +51,23 @@ const SubscribeModal: React.FC<SubscribeModalProps> = ({
     const [downloadOrder, setDownloadOrder] = useState<DownloadOrder>('dateDesc');
     const [isSubmitting, setIsSubmitting] = useState(false);
     const isTwitch = source === 'twitch';
-    const showDownloadShorts = source !== 'bilibili' && source !== 'twitch';
+    const isTwitter = source === 'twitter';
+    const showDownloadShorts = source !== 'bilibili' && source !== 'twitch' && source !== 'twitter';
     const resolvedTitle =
         title || (isTwitch ? (t('subscribeToChannel') || 'Subscribe to Channel') : t('subscribeToAuthor'));
     const resolvedDescription =
         description || (
             isTwitch
                 ? t('twitchSubscriptionDescription')
-                : t('subscribeConfirmationMessage', { author: authorName || url })
+                : isTwitter
+                    ? t('twitterSubscriptionDescription') || 'Subscribe to download new tweets with media from this user.'
+                    : t('subscribeConfirmationMessage', { author: authorName || url })
         );
     const resolvedHelpText = isTwitch
         ? t('twitchSubscriptionVodsOnly')
-        : t('subscribeDescription');
+        : isTwitter
+            ? t('twitterSubscriptionHelp') || 'Requires Twitter cookies to be configured in yt-dlp settings.'
+            : t('subscribeDescription');
 
     const handleClose = () => {
         if (!isSubmitting) {

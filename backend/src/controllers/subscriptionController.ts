@@ -9,8 +9,10 @@ import { subscriptionService } from "../services/subscriptionService";
 import {
     isBilibiliUrl,
     isTwitchChannelUrl,
+    isTwitterUrl,
     isYouTubeUrl,
     normalizeTwitchChannelUrl,
+    normalizeTwitterUrl,
     normalizeYouTubeAuthorUrl,
 } from "../utils/helpers";
 import { logger } from "../utils/logger";
@@ -71,7 +73,9 @@ export const createSubscription = async (
 
   const normalizedUrl = isTwitchChannelUrl(url)
     ? normalizeTwitchChannelUrl(url)
-    : normalizeYouTubeAuthorUrl(url);
+    : isTwitterUrl(url)
+        ? normalizeTwitterUrl(url)
+        : normalizeYouTubeAuthorUrl(url);
 
   const subscription = await subscriptionService.subscribe(
     normalizedUrl,

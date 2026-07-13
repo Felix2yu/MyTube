@@ -292,6 +292,9 @@ export const subscriptions = sqliteTable("subscriptions", {
   twitchBroadcasterId: text("twitch_broadcaster_id"),
   twitchBroadcasterLogin: text("twitch_broadcaster_login"),
   lastTwitchVideoId: text("last_twitch_video_id"),
+  // Twitter/X support
+  twitterUsername: text("twitter_username"),
+  lastTweetId: text("last_tweet_id"),
   retentionDays: integer("retention_days"), // Auto-delete subscription-owned videos older than this many days (null = disabled)
   // Durable subscription state for the consecutive-failure-streak alert (statistics feature).
   consecutiveFailureCount: integer("consecutive_failure_count").notNull().default(0),
